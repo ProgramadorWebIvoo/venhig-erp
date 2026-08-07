@@ -1,0 +1,29 @@
+{
+  "products": [
+    {
+      "code": "AM1231",
+      "description": "BATAS MANGA LARGAS DESECHABLES",
+      "presentation": "UN",
+      "itemType": "PFinal",
+      "cost": 0,
+      "profitMargin": 0.0,
+      "price": 4.2,
+      "priceListNumber": 11,
+      "stock": 0.0,
+      "reorderPoint": 0.0
+    },
+    {
+      "code": "AM1190",
+      "description": "BRAGA DESECHABLE TYVEK MACROBOND XL",
+      "presentation": "UN",
+      "itemType": "PFinal",
+      "cost": 0,
+      "profitMargin": 0.0,
+      "price": 4.0,
+      "priceListNumber": 11,
+      "stock": 0.0,
+      "reorderPoint": 0.0
+    }
+  ],
+  "clients": []
+}

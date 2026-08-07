@@ -1,0 +1,151 @@
+// Esquema central del ERP de ventas.
+// Decimal (no Float) para todo monto: evita errores de redondeo en Bs/USD.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  VENDEDOR
+}
+
+enum ItemType {
+  MP // Materia Prima
+  PPrinc // Producto Principal
+  PSecun // Producto Secundario
+  PFinal // Producto Final
+}
+
+enum PaymentMethod {
+  EFECTIVO_USD
+  EFECTIVO_BS
+  PAGO_MOVIL
+  ZELLE
+  TRANSFERENCIA
+  PENDIENTE
+  DOTACION
+  PRODUCTO_DANADO
+}
+
+enum SaleStatus {
+  PENDIENTE
+  PAGADA
+  ANULADA
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(VENDEDOR)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales Sale[]
+
+  @@map("users")
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  description     String
+  presentation    String // UN, Bulto, Docena, Galon, etc.
+  itemType        ItemType @default(PFinal)
+  cost            Decimal  @default(0) @db.Decimal(12, 4) // costo en USD — solo ADMIN lo ve/edita
+  profitMargin    Decimal  @default(0) @db.Decimal(6, 4) // fracción, ej 0.30 = 30%
+  price           Decimal  @default(0) @db.Decimal(12, 4) // precio de venta en USD
+  priceListNumber Int      @default(1)
+  stock           Decimal  @default(0) @db.Decimal(12, 4)
+  reorderPoint    Decimal  @default(0) @db.Decimal(12, 4)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  saleItems SaleItem[]
+
+  @@map("products")
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  taxId     String   @unique // RIF o CI
+  name      String
+  address   String?
+  phone     String?
+  instagram String?
+  email     String?
+  createdAt DateTime @default(now())
+
+  sales Sale[]
+
+  @@map("clients")
+}
+
+// Tasa de cambio del día — se registra manualmente por el admin, igual que en la hoja VARIABLES.
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  date      DateTime @default(now())
+  rateBcv   Decimal  @db.Decimal(12, 4)
+  createdAt DateTime @default(now())
+
+  @@map("exchange_rates")
+}
+
+// Contador atómico para el número de factura. Se bloquea con SELECT ... FOR UPDATE
+// dentro de la transacción de creación de venta, así dos ventas simultáneas
+// nunca terminan con el mismo número de factura.
+model Counter {
+  id    String @id
+  value Int    @default(0)
+
+  @@map("counters")
+}
+
+model Sale {
+  id             String        @id @default(cuid())
+  invoiceNumber  Int           @unique
+  date           DateTime      @default(now())
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id])
+  sellerId       String
+  seller         User          @relation(fields: [sellerId], references: [id])
+  exchangeRate   Decimal       @db.Decimal(12, 4)
+  ivaRate        Decimal       @default(0.16) @db.Decimal(6, 4)
+  subtotalUsd    Decimal       @db.Decimal(12, 4)
+  ivaUsd         Decimal       @db.Decimal(12, 4)
+  totalUsd       Decimal       @db.Decimal(12, 4)
+  totalBs        Decimal       @db.Decimal(14, 2)
+  paymentMethod1 PaymentMethod
+  amount1        Decimal       @default(0) @db.Decimal(12, 4)
+  paymentMethod2 PaymentMethod?
+  amount2        Decimal?      @db.Decimal(12, 4)
+  reference      String?
+  status         SaleStatus    @default(PAGADA)
+  emailSentAt    DateTime?
+  createdAt      DateTime      @default(now())
+
+  items SaleItem[]
+
+  @@map("sales")
+}
+
+model SaleItem {
+  id            String  @id @default(cuid())
+  saleId        String
+  sale          Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product @relation(fields: [productId], references: [id])
+  quantity      Decimal @db.Decimal(12, 4)
+  unitPriceUsd  Decimal @db.Decimal(12, 4) // precio congelado al momento de la venta
+  subtotalUsd   Decimal @db.Decimal(12, 4)
+
+  @@map("sale_items")
+}

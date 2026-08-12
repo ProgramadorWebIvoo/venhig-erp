@@ -1,8 +1,6 @@
 import nodemailer from "nodemailer";
 import { env } from "../config/env";
 
-// Un transporter reutilizable: crear uno por correo es más lento y agota
-// límites de conexión del proveedor SMTP.
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
   port: Number(env.SMTP_PORT),
@@ -49,8 +47,8 @@ export async function sendInvoiceEmail({
   });
 }
 
-// Verifica la conexión SMTP al arrancar el servidor, para detectar
-// credenciales mal configuradas antes de que un vendedor intente facturar.
+// Verifica la conexión SMTP al arrancar el servidor
 export async function verifyMailer(): Promise<void> {
   await transporter.verify();
+  console.log("Servicio de correo SMTP configurado correctamente.");
 }

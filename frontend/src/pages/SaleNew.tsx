@@ -38,6 +38,24 @@ export function SaleNew() {
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientModalError, setClientModalError] = useState<string | null>(null);
 
+  const [lastSale, setLastSale] = useState<{ id: string; invoiceNumber: number } | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  async function handlePrintPdf(saleId: string) {
+    setDownloadingPdf(true);
+    try {
+      const res = await api.get(`/sales/${saleId}/pdf`, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      setError("Error al cargar el PDF");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+
   useEffect(() => {
     api.get<Product[]>("/products").then((r) => setProducts(r.data));
     api.get<Client[]>("/clients").then((r) => setClients(r.data));
@@ -67,6 +85,64 @@ export function SaleNew() {
         }
       });
   }, []);
+
+  // --- Escáner de código de barras global ---
+  useEffect(() => {
+    let buffer = "";
+    let lastTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Evitar conflictos si hay modales abiertos
+      if (showClientModal) return;
+
+      const currentTime = Date.now();
+      // Si el tiempo entre teclas es > 50ms, asumimos que es tipeo manual y reseteamos
+      if (currentTime - lastTime > 50) {
+        buffer = "";
+      }
+
+      if (e.key === "Enter" && buffer.length > 2) {
+        const product = products.find((p) => p.code === buffer);
+        if (product) {
+          if (Number(product.stock) > 0) {
+            setCart((prev) => {
+              const existing = prev.find((l) => l.product.id === product.id);
+              if (existing) {
+                return prev.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l));
+              }
+              return [...prev, { product, quantity: 1 }];
+            });
+            setError(null);
+            setSuccess(`✅ Producto escaneado: ${product.description}`);
+            setTimeout(() => setSuccess(null), 3000);
+          } else {
+            setSuccess(null);
+            setError(`❌ Producto escaneado sin stock: ${product.description}`);
+            setTimeout(() => setError(null), 3000);
+          }
+        } else {
+          setSuccess(null);
+          setError(`❌ Código escaneado no encontrado: ${buffer}`);
+          setTimeout(() => setError(null), 3000);
+        }
+        buffer = "";
+        
+        // Solo prevenimos el default si realmente lo procesamos rápido como un código
+        // para no bloquear el enter en otros inputs como el buscador manual
+        const isQuickScan = currentTime - lastTime <= 50;
+        if(isQuickScan) e.preventDefault();
+        return;
+      }
+
+      if (e.key.length === 1) {
+        buffer += e.key;
+      }
+      lastTime = currentTime;
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [products, showClientModal]);
 
   const filteredProducts = useMemo(() => {
     if (productSearch.length < 1) return [];
@@ -113,6 +189,7 @@ export function SaleNew() {
   async function handleSubmit() {
     setError(null);
     setSuccess(null);
+    setLastSale(null);
 
     if (!selectedClientId) return setError("Selecciona un cliente");
     if (cart.length === 0) return setError("Agrega al menos un producto");
@@ -134,6 +211,7 @@ export function SaleNew() {
         `Venta #${data.sale.invoiceNumber} registrada. ` +
         (data.emailSent ? "Factura enviada por correo." : "No se envió correo (revisa el correo del cliente o el estado SMTP).")
       );
+      setLastSale({ id: data.sale.id, invoiceNumber: data.sale.invoiceNumber });
       setCart([]);
       setSelectedClientId("");
       setClientSearch("");
@@ -236,7 +314,13 @@ export function SaleNew() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
-          <label className="text-sm font-medium text-gray-700">Agregar producto</label>
+          <div className="flex justify-between items-center">
+            <label className="text-sm font-medium text-gray-700">Agregar producto</label>
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 7v10"/><path d="M12 7v10"/><path d="M16 7v10"/></svg>
+              Escáner activo
+            </span>
+          </div>
           <input
             value={productSearch}
             onChange={(e) => setProductSearch(e.target.value)}
@@ -397,7 +481,21 @@ export function SaleNew() {
           </label>
 
           {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</div>}
-          {success && <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2">{success}</div>}
+          {success && (
+            <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-2 flex flex-col gap-2">
+              <span>{success}</span>
+              {lastSale && success.includes("registrada") && (
+                <button
+                  onClick={() => handlePrintPdf(lastSale.id)}
+                  disabled={downloadingPdf}
+                  className="bg-green-600 text-white text-xs px-3 py-1.5 rounded-md self-start hover:bg-green-700 disabled:opacity-50 flex items-center gap-1 font-medium shadow-sm transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  {downloadingPdf ? "Cargando..." : "Imprimir / Ver PDF"}
+                </button>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleSubmit}

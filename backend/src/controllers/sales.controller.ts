@@ -37,14 +37,20 @@ export async function createSale(req: Request, res: Response) {
   const data = createSaleSchema.parse(req.body);
   const sellerId = req.user!.userId;
 
-  const currentRate = await prisma.exchangeRate.findFirst({ orderBy: { date: "desc" } });
-  if (!currentRate) {
-    throw new ApiError(409, "No hay tasa de cambio registrada. Un administrador debe fijarla primero.");
+  let currentRateBcv: number;
+  try {
+    const dolarResponse = await fetch("https://ve.dolarapi.com/v1/dolares/oficial");
+    if (!dolarResponse.ok) throw new Error();
+    const dolarData = await dolarResponse.json();
+    currentRateBcv = Number(dolarData.promedio);
+    if (isNaN(currentRateBcv) || currentRateBcv <= 0) throw new Error("Tasa inválida");
+  } catch (e) {
+    throw new ApiError(502, "Error obteniendo la tasa del BCV en tiempo real. Intente nuevamente.");
   }
 
   const sale = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Lock de fila sobre el contador: serializa la asignación de números de factura.
-    await tx.$executeRaw`SELECT value FROM "counters" WHERE id = 'invoice' FOR UPDATE`;
+    await tx.$executeRaw`SELECT value FROM counters WHERE id = 'invoice' FOR UPDATE`;
     const counter = await tx.counter.upsert({
       where: { id: "invoice" },
       create: { id: "invoice", value: 1 },
@@ -92,7 +98,7 @@ export async function createSale(req: Request, res: Response) {
 
     const ivaUsd = subtotalUsd.times(IVA_RATE);
     const totalUsd = subtotalUsd.plus(ivaUsd);
-    const totalBs = totalUsd.times(currentRate.rateBcv);
+    const totalBs = totalUsd.times(currentRateBcv);
 
     const paidTotal = new Prisma.Decimal(data.amount1).plus(data.amount2 ?? 0);
     if (
@@ -107,7 +113,7 @@ export async function createSale(req: Request, res: Response) {
         invoiceNumber: counter.value,
         clientId: data.clientId,
         sellerId,
-        exchangeRate: currentRate.rateBcv,
+        exchangeRate: currentRateBcv,
         ivaRate: IVA_RATE,
         subtotalUsd,
         ivaUsd,

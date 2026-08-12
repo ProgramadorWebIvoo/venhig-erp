@@ -27,14 +27,16 @@ export function Sales() {
     load();
   }, []);
 
-  async function downloadPdf(sale: Sale) {
-    const res = await api.get(`/sales/${sale.id}/pdf`, { responseType: "blob" });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `factura-${sale.invoiceNumber}.pdf`;
-    link.click();
-    window.URL.revokeObjectURL(url);
+  async function handlePrintPdf(sale: Sale) {
+    try {
+      const res = await api.get(`/sales/${sale.id}/pdf`, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url);
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      setError("Error al cargar el PDF");
+    }
   }
 
   async function resendEmail(sale: Sale) {
@@ -107,8 +109,8 @@ export function Sales() {
                       >
                         {expandedId === sale.id ? "Ocultar" : "Detalle"}
                       </button>
-                      <button onClick={() => downloadPdf(sale)} className="text-brand-700 hover:underline text-xs">
-                        PDF
+                      <button onClick={() => handlePrintPdf(sale)} className="text-brand-700 hover:underline text-xs">
+                        Ver / Imprimir
                       </button>
                       {sale.client.email && (
                         <button

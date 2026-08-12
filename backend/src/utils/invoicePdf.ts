@@ -82,6 +82,19 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     y += 6;
 
     for (const item of data.items) {
+      // Calculate max height for this row based on the longest text (usually description)
+      const rowHeight = Math.max(
+        doc.heightOfString(item.code, { width: colWidths.code }),
+        doc.heightOfString(item.description, { width: colWidths.desc }),
+        18
+      );
+
+      // Si nos pasamos de la página, agregamos una nueva antes de escribir la fila
+      if (y + rowHeight > 720) {
+        doc.addPage();
+        y = 50;
+      }
+
       doc.text(item.code, startX, y, { width: colWidths.code });
       doc.text(item.description, startX + colWidths.code, y, { width: colWidths.desc });
       doc.text(item.quantity, startX + colWidths.code + colWidths.desc, y, { width: colWidths.qty, align: "right" });
@@ -92,11 +105,8 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
         y,
         { width: colWidths.subtotal, align: "right" }
       );
-      y += 18;
-      if (y > 720) {
-        doc.addPage();
-        y = 50;
-      }
+      
+      y += rowHeight + 5; // Aumentamos 'y' según la altura real + padding
     }
 
     y += 10;

@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import path from "node:path";
 import "express-async-errors"; // permite `throw` dentro de async handlers sin try/catch manual
 import { env } from "./config/env";
 import { authRouter } from "./routes/auth.routes";
@@ -18,6 +19,7 @@ const app = express();
 
 app.use(cors({ origin: env.CORS_ORIGIN }));
 app.use(express.json());
+app.use("/public", express.static(path.join(__dirname, "../public")));
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

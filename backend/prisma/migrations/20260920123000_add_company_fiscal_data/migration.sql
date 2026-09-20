@@ -1,0 +1,3 @@
+ALTER TABLE `fiscal_config`
+    ADD COLUMN `companyName` VARCHAR(191) NOT NULL DEFAULT 'Mi Empresa',
+    ADD COLUMN `companyTaxId` VARCHAR(191) NOT NULL DEFAULT 'J-000000000';

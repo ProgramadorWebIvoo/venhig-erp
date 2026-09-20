@@ -53,6 +53,15 @@ export function Sales() {
     }
   }
 
+  async function convertToInvoice(sale: Sale) {
+    try {
+      await api.post(`/sales/${sale.id}/convert`);
+      await load();
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <h1 className="text-xl font-bold mb-4">Historial de ventas</h1>
@@ -81,7 +90,7 @@ export function Sales() {
               {sales.map((sale) => (
                 <Fragment key={sale.id}>
                   <tr className="border-t">
-                    <td className="px-4 py-2 font-mono">{sale.invoiceNumber}</td>
+                    <td className="px-4 py-2 font-mono">{sale.documentType === "NOTA_ENTREGA" ? "NE" : "FAC"}-{sale.invoiceNumber}</td>
                     <td className="px-4 py-2">{new Date(sale.date).toLocaleString("es-VE")}</td>
                     <td className="px-4 py-2">{sale.client.name}</td>
                     <td className="px-4 py-2">{sale.seller.name}</td>
@@ -119,6 +128,11 @@ export function Sales() {
                           className="text-brand-700 hover:underline text-xs disabled:opacity-50"
                         >
                           {resendingId === sale.id ? "Enviando..." : "Reenviar"}
+                        </button>
+                      )}
+                      {sale.documentType === "NOTA_ENTREGA" && sale.status === "PENDIENTE" && (
+                        <button onClick={() => convertToInvoice(sale)} className="text-green-700 hover:underline text-xs">
+                          Convertir a factura
                         </button>
                       )}
                     </td>

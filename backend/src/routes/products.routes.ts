@@ -21,7 +21,7 @@ productsRouter.get("/:id", getProduct);
 
 // Escritura: exclusivo ADMIN. Aquí es donde se garantiza que un vendedor
 // nunca pueda cambiar precio, costo ni inventario, sin importar qué mande el frontend.
-productsRouter.post("/", requireRole(Role.ADMIN), createProduct);
-productsRouter.post("/bulk", requireRole(Role.ADMIN), createProductsBulk);
-productsRouter.put("/:id", requireRole(Role.ADMIN), updateProduct);
-productsRouter.delete("/:id", requireRole(Role.ADMIN), deactivateProduct);
+productsRouter.post("/", requireRole(Role.ADMIN, Role.COMPRAS), createProduct);
+productsRouter.post("/bulk", requireRole(Role.ADMIN, Role.COMPRAS), createProductsBulk);
+productsRouter.put("/:id", requireRole(Role.ADMIN, Role.COMPRAS), updateProduct);
+productsRouter.delete("/:id", requireRole(Role.ADMIN, Role.COMPRAS), deactivateProduct);

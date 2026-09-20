@@ -11,6 +11,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  COMPRAS
   VENDEDOR
 }
 
@@ -32,9 +33,30 @@ enum PaymentMethod {
   PRODUCTO_DANADO
 }
 
+enum ExchangeCurrency {
+  DOLAR
+  EURO
+}
+
 enum SaleStatus {
   PENDIENTE
   PAGADA
+  ANULADA
+}
+
+enum DocumentType {
+  FACTURA
+  NOTA_ENTREGA
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PurchaseStatus {
+  RECIBIDA
   ANULADA
 }
 
@@ -49,6 +71,9 @@ model User {
   updatedAt    DateTime @updatedAt
 
   sales Sale[]
+  purchases Purchase[]
+  priceApprovals PriceApproval[]
+  repackExecutions RepackExecution[]
 
   @@map("users")
 }
@@ -70,6 +95,12 @@ model Product {
   updatedAt       DateTime @updatedAt
 
   saleItems SaleItem[]
+  purchaseItems PurchaseItem[]
+  stockMovements StockMovement[]
+  repackParentRules RepackRule[] @relation("RepackParent")
+  repackChildRules RepackRule[] @relation("RepackChild")
+  priceApprovals PriceApproval[]
+  warehouseStocks WarehouseStock[]
 
   @@map("products")
 }
@@ -112,12 +143,14 @@ model Counter {
 model Sale {
   id             String        @id @default(cuid())
   invoiceNumber  Int           @unique
+  documentType   DocumentType  @default(FACTURA)
   date           DateTime      @default(now())
   clientId       String
   client         Client        @relation(fields: [clientId], references: [id])
   sellerId       String
   seller         User          @relation(fields: [sellerId], references: [id])
   exchangeRate   Decimal       @db.Decimal(12, 4)
+  exchangeCurrency ExchangeCurrency @default(DOLAR)
   ivaRate        Decimal       @default(0.16) @db.Decimal(6, 4)
   subtotalUsd    Decimal       @db.Decimal(12, 4)
   ivaUsd         Decimal       @db.Decimal(12, 4)
@@ -133,8 +166,149 @@ model Sale {
   createdAt      DateTime      @default(now())
 
   items SaleItem[]
+  priceApprovals PriceApproval[]
 
   @@map("sales")
+}
+
+model PriceApproval {
+  id             String         @id @default(cuid())
+  saleId         String
+  sale           Sale           @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product        @relation(fields: [productId], references: [id])
+  catalogPrice   Decimal        @db.Decimal(12, 4)
+  chargedPrice   Decimal        @db.Decimal(12, 4)
+  status         ApprovalStatus @default(PENDING)
+  decidedById    String?
+  decidedBy      User?          @relation(fields: [decidedById], references: [id])
+  decidedAt      DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@index([status])
+  @@map("price_approvals")
+}
+
+model Supplier {
+  id        String     @id @default(cuid())
+  taxId     String     @unique
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  purchases Purchase[]
+
+  @@map("suppliers")
+}
+
+model Purchase {
+  id          String          @id @default(cuid())
+  number      Int             @unique
+  supplierId  String
+  supplier    Supplier        @relation(fields: [supplierId], references: [id])
+  buyerId     String
+  buyer       User            @relation(fields: [buyerId], references: [id])
+  date        DateTime        @default(now())
+  totalUsd    Decimal         @db.Decimal(12, 4)
+  status      PurchaseStatus  @default(RECIBIDA)
+  reference   String?
+  items       PurchaseItem[]
+  createdAt   DateTime        @default(now())
+
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Decimal  @db.Decimal(12, 4)
+  unitCostUsd Decimal  @db.Decimal(12, 4)
+  subtotalUsd Decimal  @db.Decimal(12, 4)
+
+  @@map("purchase_items")
+}
+
+model RepackRule {
+  id             String  @id @default(cuid())
+  parentProductId String
+  parentProduct  Product @relation("RepackParent", fields: [parentProductId], references: [id])
+  childProductId  String
+  childProduct    Product @relation("RepackChild", fields: [childProductId], references: [id])
+  childQuantity   Decimal @db.Decimal(12, 4)
+  active          Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  executions      RepackExecution[]
+
+  @@unique([parentProductId, childProductId])
+  @@map("repack_rules")
+}
+
+model RepackExecution {
+  id          String   @id @default(cuid())
+  ruleId      String
+  rule        RepackRule @relation(fields: [ruleId], references: [id])
+  quantity    Decimal  @db.Decimal(12, 4)
+  executedById String
+  executedBy  User     @relation(fields: [executedById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@map("repack_executions")
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Decimal  @db.Decimal(12, 4)
+  reason    String
+  reference String?
+  createdAt DateTime @default(now())
+
+  @@index([productId, createdAt])
+  @@map("stock_movements")
+}
+
+model Warehouse {
+  id        String          @id @default(cuid())
+  code      String          @unique
+  name      String
+  active    Boolean         @default(true)
+  stocks    WarehouseStock[]
+  createdAt DateTime        @default(now())
+
+  @@map("warehouses")
+}
+
+model WarehouseStock {
+  id          String    @id @default(cuid())
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  quantity    Decimal   @db.Decimal(12, 4) @default(0)
+
+  @@unique([warehouseId, productId])
+  @@map("warehouse_stocks")
+}
+
+model FiscalConfig {
+  id              String   @id @default("default")
+  companyName     String   @default("Mi Empresa")
+  companyTaxId    String   @default("J-000000000")
+  controlNumber   Int      @default(1)
+  authorization   String?
+  rangeFrom       Int?
+  rangeTo         Int?
+  updatedAt       DateTime @updatedAt
+
+  @@map("fiscal_config")
 }
 
 model SaleItem {

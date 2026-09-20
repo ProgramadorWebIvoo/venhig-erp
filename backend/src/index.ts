@@ -8,6 +8,9 @@ import { productsRouter } from "./routes/products.routes";
 import { clientsRouter } from "./routes/clients.routes";
 import { salesRouter } from "./routes/sales.routes";
 import { exchangeRateRouter } from "./routes/exchangeRate.routes";
+import { reportsRouter } from "./routes/reports.routes";
+import { procurementRouter } from "./routes/procurement.routes";
+import { settingsRouter } from "./routes/settings.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { verifyMailer } from "./utils/mailer";
 
@@ -24,6 +27,9 @@ app.use("/api/products", productsRouter);
 app.use("/api/clients", clientsRouter);
 app.use("/api/sales", salesRouter);
 app.use("/api/exchange-rate", exchangeRateRouter);
+app.use("/api/reports", reportsRouter);
+app.use("/api/procurement", procurementRouter);
+app.use("/api/settings", settingsRouter);
 
 // Debe registrarse DESPUÉS de todas las rutas: es el único lugar que traduce
 // errores lanzados en cualquier controlador a una respuesta HTTP consistente.

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, getApiErrorMessage } from "../api/client";
-import type { Client, ExchangeRate, PaymentMethod, Product } from "../types";
+import type { Client, ExchangeCurrency, ExchangeQuotes, PaymentMethod, Product } from "../types";
 import { PAYMENT_METHOD_LABELS } from "../types";
 
 interface CartLine {
   product: Product;
   quantity: number;
+  unitPrice: number;
 }
 
 const IVA_RATE = 0.16;
@@ -15,7 +16,8 @@ const emptyClientForm = { taxId: "", name: "", address: "", phone: "", instagram
 export function SaleNew() {
   const [products, setProducts] = useState<Product[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [rate, setRate] = useState<ExchangeRate | null>(null);
+  const [quotes, setQuotes] = useState<ExchangeQuotes | null>(null);
+  const [exchangeCurrency, setExchangeCurrency] = useState<ExchangeCurrency>("DOLAR");
 
   const [productSearch, setProductSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
@@ -28,6 +30,7 @@ export function SaleNew() {
   const [amount2, setAmount2] = useState("");
   const [reference, setReference] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const [documentType, setDocumentType] = useState<"FACTURA" | "NOTA_ENTREGA">("FACTURA");
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -59,31 +62,9 @@ export function SaleNew() {
   useEffect(() => {
     api.get<Product[]>("/products").then((r) => setProducts(r.data));
     api.get<Client[]>("/clients").then((r) => setClients(r.data));
-    api
-      .get<ExchangeRate>("https://ve.dolarapi.com/v1/dolares/oficial")
-      .then((r) => setRate(r.data))
-      .catch(async () => {
-        try {
-          const dolarResponse = await fetch("https://ve.dolarapi.com/v1/dolares/oficial");
-          if (dolarResponse.ok) {
-            const dolarData = await dolarResponse.json();
-            const tasaBs = Number(dolarData.promedio);
-            if (tasaBs > 0) {
-              setRate({
-                id: "dolarapi",
-                date: new Date().toISOString(),
-                rateBcv: String(tasaBs),
-              });
-            } else {
-              setRate(null);
-            }
-          } else {
-            setRate(null);
-          }
-        } catch (e) {
-          setRate(null);
-        }
-      });
+    api.get<ExchangeQuotes>("/exchange-rate/quotes")
+      .then((response) => setQuotes(response.data))
+      .catch(() => setQuotes(null));
   }, []);
 
   // --- Escáner de código de barras global ---
@@ -110,7 +91,7 @@ export function SaleNew() {
               if (existing) {
                 return prev.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l));
               }
-              return [...prev, { product, quantity: 1 }];
+              return [...prev, { product, quantity: 1, unitPrice: Number(product.price) }];
             });
             setError(null);
             setSuccess(`✅ Producto escaneado: ${product.description}`);
@@ -162,10 +143,11 @@ export function SaleNew() {
     );
   }, [clients, clientSearch]);
 
-  const subtotal = cart.reduce((sum, line) => sum + Number(line.product.price) * line.quantity, 0);
+  const subtotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const iva = subtotal * IVA_RATE;
   const total = subtotal + iva;
-  const totalBs = rate ? total * Number(rate.rateBcv) : 0;
+  const selectedRate = quotes ? quotes[exchangeCurrency === "DOLAR" ? "dolar" : "euro"] : 0;
+  const totalBs = total * selectedRate;
 
   function addToCart(product: Product) {
     setCart((prev) => {
@@ -173,7 +155,7 @@ export function SaleNew() {
       if (existing) {
         return prev.map((l) => (l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l));
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, unitPrice: Number(product.price) }];
     });
     setProductSearch("");
   }
@@ -198,7 +180,10 @@ export function SaleNew() {
     try {
       const { data } = await api.post("/sales", {
         clientId: selectedClientId,
+        documentType,
+        exchangeCurrency,
         items: cart.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        prices: cart.map((l) => ({ productId: l.product.id, unitPriceUsd: l.unitPrice })),
         paymentMethod1,
         amount1: Number(amount1 || 0),
         paymentMethod2: paymentMethod2 || undefined,
@@ -218,6 +203,7 @@ export function SaleNew() {
       setAmount1("");
       setAmount2("");
       setReference("");
+      setDocumentType("FACTURA");
       const refreshed = await api.get<Product[]>("/products");
       setProducts(refreshed.data);
     } catch (err) {
@@ -235,6 +221,7 @@ export function SaleNew() {
       const { data: newClient } = await api.post<Client>("/clients", clientForm);
       setClients((prev) => [...prev, newClient]);
       setSelectedClientId(newClient.id);
+      setClientSearch(newClient.name);
       setShowClientModal(false);
       setClientForm(emptyClientForm);
     } catch (err) {
@@ -249,9 +236,9 @@ export function SaleNew() {
       <div className="col-span-2 space-y-4">
         <h1 className="text-xl font-bold">Nueva venta</h1>
 
-        {!rate && (
+        {!quotes && (
           <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            No hay tasa de cambio registrada hoy. Un administrador debe fijarla antes de poder facturar.
+            No se pudieron cargar las tasas oficiales de dólar y euro.
           </div>
         )}
 
@@ -273,8 +260,10 @@ export function SaleNew() {
             )}
           </div>
           {selectedClientId ? (
-            <div className="flex items-center justify-between mt-1 bg-brand-50 border border-brand-100 rounded-md px-3 py-2">
-              <span>{clients.find((c) => c.id === selectedClientId)?.name ?? clientSearch}</span>
+            <div className="flex items-center justify-between mt-1 bg-brand-500/10 border border-brand-500/30 rounded-md px-3 py-2">
+              <span className="text-slate-200">
+                {clients.find((c) => c.id === selectedClientId)?.name || clientSearch || "Cliente seleccionado"}
+              </span>
               <button
                 onClick={() => {
                   setSelectedClientId("");
@@ -300,6 +289,7 @@ export function SaleNew() {
                       key={c.id}
                       onClick={() => {
                         setSelectedClientId(c.id);
+                        setClientSearch(c.name);
                       }}
                       className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b last:border-0"
                     >
@@ -374,8 +364,11 @@ export function SaleNew() {
                       className="w-20 border rounded-md px-2 py-1"
                     />
                   </td>
-                  <td className="px-3 py-2 text-right">${Number(line.product.price).toFixed(2)}</td>
-                  <td className="px-3 py-2 text-right">${(Number(line.product.price) * line.quantity).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => setCart((prev) => prev.map((item) => item.product.id === line.product.id ? { ...item, unitPrice: Number(e.target.value) } : item))} className="w-24 border rounded-md px-2 py-1 text-right" />
+                    {line.unitPrice !== Number(line.product.price) && <div className="text-[10px] text-amber-700">Requiere aprobación</div>}
+                  </td>
+                  <td className="px-3 py-2 text-right">${(line.unitPrice * line.quantity).toFixed(2)}</td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => removeLine(line.product.id)} className="text-red-600 hover:underline text-xs">
                       Quitar
@@ -410,14 +403,31 @@ export function SaleNew() {
             <span>Total</span>
             <span>${total.toFixed(2)}</span>
           </div>
-          {rate && (
+          {quotes && (
             <div className="flex justify-between text-xs text-gray-500">
-              <span>Equivalente Bs (tasa {rate.rateBcv})</span>
+              <span>Equivalente Bs ({exchangeCurrency === "DOLAR" ? "dólar" : "euro"} {selectedRate.toFixed(4)})</span>
               <span>Bs {totalBs.toFixed(2)}</span>
             </div>
           )}
 
           <hr />
+
+          <div>
+            <label className="text-sm text-gray-600">Moneda de referencia</label>
+            <select value={exchangeCurrency} onChange={(e) => setExchangeCurrency(e.target.value as ExchangeCurrency)} className="w-full border rounded-md px-2 py-1.5">
+              <option value="DOLAR">Dólar oficial · Bs {quotes?.dolar.toFixed(4) ?? "-"}</option>
+              <option value="EURO">Euro oficial · Bs {quotes?.euro.toFixed(4) ?? "-"}</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">El total en dólares/euros no cambia; solo cambia el equivalente en bolívares.</p>
+          </div>
+
+          <div>
+            <label className="text-sm text-gray-600">Tipo de documento</label>
+            <select value={documentType} onChange={(e) => setDocumentType(e.target.value as "FACTURA" | "NOTA_ENTREGA")} className="w-full border rounded-md px-2 py-1.5">
+              <option value="FACTURA">Factura</option>
+              <option value="NOTA_ENTREGA">Nota de entrega</option>
+            </select>
+          </div>
 
           <div>
             <label className="text-sm text-gray-600">Forma de pago 1</label>
@@ -499,7 +509,7 @@ export function SaleNew() {
 
           <button
             onClick={handleSubmit}
-            disabled={submitting || !rate}
+            disabled={submitting || !quotes}
             className="w-full bg-brand-700 hover:bg-brand-600 text-white rounded-md py-2 font-medium disabled:opacity-50"
           >
             {submitting ? "Procesando..." : "Confirmar venta"}

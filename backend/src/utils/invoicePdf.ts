@@ -1,5 +1,4 @@
 import PDFDocument from "pdfkit";
-import { env } from "../config/env";
 
 export interface InvoicePdfItem {
   code: string;
@@ -10,6 +9,8 @@ export interface InvoicePdfItem {
 }
 
 export interface InvoicePdfData {
+  companyName: string;
+  companyTaxId: string;
   invoiceNumber: number;
   date: Date;
   clientName: string;
@@ -22,6 +23,7 @@ export interface InvoicePdfData {
   ivaUsd: string;
   totalUsd: string;
   totalBs: string;
+  exchangeCurrency?: string;
 }
 
 /**
@@ -39,9 +41,9 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
 
     doc
       .fontSize(18)
-      .text(env.COMPANY_NAME, { continued: false })
+      .text(data.companyName, { continued: false })
       .fontSize(10)
-      .text(`RIF: ${env.COMPANY_TAX_ID}`)
+      .text(`RIF: ${data.companyTaxId}`)
       .moveDown();
 
     doc
@@ -57,7 +59,7 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       .text(`RIF/CI: ${data.clientTaxId}`)
       .text(`Dirección: ${data.clientAddress ?? "N/A"}`)
       .text(`Vendedor: ${data.sellerName}`)
-      .text(`Tasa de cambio (BCV): ${data.exchangeRate} Bs/$`)
+      .text(`Tasa de cambio (${data.exchangeCurrency ?? "DOLAR"}): ${data.exchangeRate} Bs`)
       .moveDown();
 
     // --- Tabla de ítems ---

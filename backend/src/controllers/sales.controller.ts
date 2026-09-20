@@ -1,10 +1,11 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { Prisma, PaymentMethod } from "@prisma/client";
+import { DocumentType, ExchangeCurrency, Prisma, PaymentMethod } from "@prisma/client";
 import { prisma } from "../config/prisma";
 import { ApiError } from "../middleware/errorHandler";
 import { renderInvoicePdf } from "../utils/invoicePdf";
 import { sendInvoiceEmail } from "../utils/mailer";
+import { env } from "../config/env";
 
 const saleItemSchema = z.object({
   productId: z.string().min(1),
@@ -20,9 +21,20 @@ const createSaleSchema = z.object({
   amount2: z.number().nonnegative().optional(),
   reference: z.string().optional(),
   sendEmail: z.boolean().default(true),
+  documentType: z.nativeEnum(DocumentType).default(DocumentType.FACTURA),
+  exchangeCurrency: z.nativeEnum(ExchangeCurrency).default(ExchangeCurrency.DOLAR),
+  prices: z.array(z.object({ productId: z.string().min(1), unitPriceUsd: z.number().nonnegative() })).optional(),
 });
 
 const IVA_RATE = 0.16;
+
+async function getInvoiceCompanyData() {
+  const config = await prisma.fiscalConfig.findUnique({ where: { id: "default" } });
+  return {
+    companyName: config?.companyName ?? env.COMPANY_NAME,
+    companyTaxId: config?.companyTaxId ?? env.COMPANY_TAX_ID,
+  };
+}
 
 /**
  * Crea una venta de forma atómica:
@@ -39,10 +51,13 @@ export async function createSale(req: Request, res: Response) {
 
   let currentRateBcv: number;
   try {
-    const dolarResponse = await fetch("https://ve.dolarapi.com/v1/dolares/oficial");
-    if (!dolarResponse.ok) throw new Error();
-    const dolarData = await dolarResponse.json();
-    currentRateBcv = Number(dolarData.promedio);
+    const rateUrl = data.exchangeCurrency === ExchangeCurrency.EURO
+      ? "https://ve.dolarapi.com/v1/euros/oficial"
+      : "https://ve.dolarapi.com/v1/dolares/oficial";
+    const rateResponse = await fetch(rateUrl);
+    if (!rateResponse.ok) throw new Error();
+    const rateData = (await rateResponse.json()) as { promedio?: number };
+    currentRateBcv = Number(rateData.promedio);
     if (isNaN(currentRateBcv) || currentRateBcv <= 0) throw new Error("Tasa inválida");
   } catch (e) {
     throw new ApiError(502, "Error obteniendo la tasa del BCV en tiempo real. Intente nuevamente.");
@@ -80,13 +95,15 @@ export async function createSale(req: Request, res: Response) {
         );
       }
 
-      const lineSubtotal = product.price.times(quantity);
+      const requestedPrice = data.prices?.find((price) => price.productId === product.id)?.unitPriceUsd;
+      const unitPriceUsd = requestedPrice === undefined ? product.price : new Prisma.Decimal(requestedPrice);
+      const lineSubtotal = unitPriceUsd.times(quantity);
       subtotalUsd = subtotalUsd.plus(lineSubtotal);
 
       itemsToCreate.push({
         productId: product.id,
         quantity,
-        unitPriceUsd: product.price,
+        unitPriceUsd,
         subtotalUsd: lineSubtotal,
       });
 
@@ -114,6 +131,7 @@ export async function createSale(req: Request, res: Response) {
         clientId: data.clientId,
         sellerId,
         exchangeRate: currentRateBcv,
+        exchangeCurrency: data.exchangeCurrency,
         ivaRate: IVA_RATE,
         subtotalUsd,
         ivaUsd,
@@ -124,7 +142,8 @@ export async function createSale(req: Request, res: Response) {
         paymentMethod2: data.paymentMethod2,
         amount2: data.amount2,
         reference: data.reference,
-        status: data.paymentMethod1 === PaymentMethod.PENDIENTE ? "PENDIENTE" : "PAGADA",
+        documentType: data.documentType,
+        status: data.paymentMethod1 === PaymentMethod.PENDIENTE || data.documentType === DocumentType.NOTA_ENTREGA ? "PENDIENTE" : "PAGADA",
         items: { create: itemsToCreate },
       },
       include: {
@@ -135,9 +154,25 @@ export async function createSale(req: Request, res: Response) {
     });
   });
 
+  const specialPrices = data.prices ?? [];
+  for (const price of specialPrices) {
+    const product = await prisma.product.findUnique({ where: { id: price.productId } });
+    if (product && !product.price.equals(price.unitPriceUsd)) {
+      await prisma.priceApproval.create({
+        data: {
+          saleId: sale.id,
+          productId: product.id,
+          catalogPrice: product.price,
+          chargedPrice: price.unitPriceUsd,
+        },
+      });
+    }
+  }
+
   // Generar y (opcionalmente) enviar la factura FUERA de la transacción de DB:
   // una falla de correo no debe revertir una venta ya confirmada.
   const pdfBuffer = await renderInvoicePdf({
+    ...(await getInvoiceCompanyData()),
     invoiceNumber: sale.invoiceNumber,
     date: sale.date,
     clientName: sale.client.name,
@@ -145,6 +180,7 @@ export async function createSale(req: Request, res: Response) {
     clientAddress: sale.client.address,
     sellerName: sale.seller.name,
     exchangeRate: sale.exchangeRate.toString(),
+    exchangeCurrency: sale.exchangeCurrency,
     items: sale.items.map((i) => ({
       code: i.product.code,
       description: i.product.description,
@@ -178,6 +214,33 @@ export async function createSale(req: Request, res: Response) {
   }
 
   res.status(201).json({ sale, emailSent });
+}
+
+export async function listPriceApprovals(_req: Request, res: Response) {
+  const approvals = await prisma.priceApproval.findMany({
+    where: { status: "PENDING" },
+    include: { sale: { include: { client: true, seller: { select: { name: true } } } }, product: true },
+    orderBy: { createdAt: "asc" },
+  });
+  res.json(approvals);
+}
+
+export async function decidePriceApproval(req: Request, res: Response) {
+  const status = z.enum(["APPROVED", "REJECTED"]).parse(req.body.decision);
+  const approval = await prisma.priceApproval.update({
+    where: { id: req.params.id },
+    data: { status, decidedById: req.user!.userId, decidedAt: new Date() },
+  });
+  res.json(approval);
+}
+
+export async function convertDeliveryNote(req: Request, res: Response) {
+  const sale = await prisma.sale.update({
+    where: { id: req.params.id },
+    data: { documentType: DocumentType.FACTURA, status: "PAGADA" },
+    include: { client: true, seller: { select: { name: true } }, items: { include: { product: true } } },
+  });
+  res.json(sale);
 }
 
 export async function listSales(req: Request, res: Response) {
@@ -221,6 +284,7 @@ export async function downloadSalePdf(req: Request, res: Response) {
   });
 
   const pdfBuffer = await renderInvoicePdf({
+    ...(await getInvoiceCompanyData()),
     invoiceNumber: sale.invoiceNumber,
     date: sale.date,
     clientName: sale.client.name,
@@ -228,6 +292,7 @@ export async function downloadSalePdf(req: Request, res: Response) {
     clientAddress: sale.client.address,
     sellerName: sale.seller.name,
     exchangeRate: sale.exchangeRate.toString(),
+    exchangeCurrency: sale.exchangeCurrency,
     items: sale.items.map((i) => ({
       code: i.product.code,
       description: i.product.description,
@@ -257,6 +322,7 @@ export async function resendSaleEmail(req: Request, res: Response) {
   }
 
   const pdfBuffer = await renderInvoicePdf({
+    ...(await getInvoiceCompanyData()),
     invoiceNumber: sale.invoiceNumber,
     date: sale.date,
     clientName: sale.client.name,
@@ -264,6 +330,7 @@ export async function resendSaleEmail(req: Request, res: Response) {
     clientAddress: sale.client.address,
     sellerName: sale.seller.name,
     exchangeRate: sale.exchangeRate.toString(),
+    exchangeCurrency: sale.exchangeCurrency,
     items: sale.items.map((i) => ({
       code: i.product.code,
       description: i.product.description,

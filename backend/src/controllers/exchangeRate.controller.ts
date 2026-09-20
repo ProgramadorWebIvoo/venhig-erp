@@ -51,3 +51,27 @@ export async function listRateHistory(_req: Request, res: Response) {
   const rates = await prisma.exchangeRate.findMany({ orderBy: { date: "desc" }, take: 30 });
   res.json(rates);
 }
+
+export async function getOfficialQuotes(_req: Request, res: Response) {
+  const [dolarResponse, euroResponse] = await Promise.all([
+    fetch("https://ve.dolarapi.com/v1/dolares/oficial"),
+    fetch("https://ve.dolarapi.com/v1/euros/oficial"),
+  ]);
+
+  if (!dolarResponse.ok || !euroResponse.ok) {
+    throw new ApiError(502, "No se pudieron obtener las tasas oficiales de dólar y euro");
+  }
+
+  const [dolarData, euroData] = await Promise.all([
+    dolarResponse.json() as Promise<{ promedio?: number }>,
+    euroResponse.json() as Promise<{ promedio?: number }>,
+  ]);
+  const dolar = Number(dolarData.promedio);
+  const euro = Number(euroData.promedio);
+
+  if (!Number.isFinite(dolar) || dolar <= 0 || !Number.isFinite(euro) || euro <= 0) {
+    throw new ApiError(502, "Las tasas oficiales recibidas no son válidas");
+  }
+
+  res.json({ dolar, euro, date: new Date().toISOString() });
+}

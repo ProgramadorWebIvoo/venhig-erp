@@ -1,4 +1,4 @@
-export type Role = "ADMIN" | "VENDEDOR";
+export type Role = "ADMIN" | "COMPRAS" | "VENDEDOR";
 
 export interface AuthUser {
   id: string;
@@ -67,6 +67,7 @@ export interface SaleItem {
 export interface Sale {
   id: string;
   invoiceNumber: number;
+  documentType: "FACTURA" | "NOTA_ENTREGA";
   date: string;
   client: Client;
   seller: { name: string };
@@ -85,8 +86,32 @@ export interface Sale {
   items: SaleItem[];
 }
 
+export interface Supplier { id: string; taxId: string; name: string; address?: string | null; phone?: string | null; email?: string | null; }
+export interface Purchase { id: string; number: number; date: string; totalUsd: string; reference?: string | null; supplier: Supplier; buyer: { name: string }; items: { productId: string; quantity: string; unitCostUsd: string; product?: Product }[]; }
+export interface RepackRule { id: string; parentProductId: string; childProductId: string; childQuantity: string; parentProduct: Product; childProduct: Product; }
+export interface PriceApproval { id: string; catalogPrice: string; chargedPrice: string; product: Product; sale: { id: string; invoiceNumber: number; client: Client; seller: { name: string } }; }
+
 export interface ExchangeRate {
   id: string;
   date: string;
   rateBcv: string;
+}
+
+export type ExchangeCurrency = "DOLAR" | "EURO";
+
+export interface ExchangeQuotes {
+  dolar: number;
+  euro: number;
+  date: string;
+}
+
+export interface ReportSummary {
+  totalUsd: number;
+  pendingUsd: number;
+  averageTicketUsd: number;
+  documentCount: number;
+  pendingCount: number;
+  topProducts: { code: string; description: string; quantity: number; revenue: number }[];
+  salesByDay: { date: string; amountUsd: number }[];
+  receivables: { id: string; invoiceNumber: number; client: string; totalUsd: number }[];
 }

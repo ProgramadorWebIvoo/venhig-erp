@@ -33,6 +33,7 @@ async function main() {
   // --- Usuarios base ---
   // ⚠️ Cambia estas contraseñas inmediatamente después del primer login.
   const adminPasswordHash = await bcrypt.hash("Admin#2026", 12);
+  const comprasPasswordHash = await bcrypt.hash("Compras#2026", 12);
   const vendedorPasswordHash = await bcrypt.hash("Vendedor#2026", 12);
 
   await prisma.user.upsert({
@@ -47,6 +48,17 @@ async function main() {
   });
 
   await prisma.user.upsert({
+    where: { email: "compras@tuempresa.com" },
+    update: {},
+    create: {
+      name: "Compras Demo",
+      email: "compras@tuempresa.com",
+      passwordHash: comprasPasswordHash,
+      role: Role.COMPRAS,
+    },
+  });
+
+  await prisma.user.upsert({
     where: { email: "vendedor@tuempresa.com" },
     update: {},
     create: {
@@ -57,7 +69,7 @@ async function main() {
     },
   });
 
-  console.log("✅ Usuarios base creados (admin@tuempresa.com / vendedor@tuempresa.com)");
+  console.log("✅ Usuarios base creados (admin@tuempresa.com / compras@tuempresa.com / vendedor@tuempresa.com)");
 
   // --- Tasa de cambio inicial (ajústala a la del día real) ---
   await prisma.exchangeRate.create({ data: { rateBcv: 100 } });

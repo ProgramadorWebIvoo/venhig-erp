@@ -50,7 +50,8 @@ const emptyForm = {
 };
 
 export function Products() {
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const canManage = isAdmin || user?.role === "COMPRAS";
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -222,7 +223,7 @@ export function Products() {
     <div className="max-w-6xl mx-auto p-6">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold">Catálogo de productos</h1>
-        {isAdmin && (
+        {canManage && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -242,7 +243,7 @@ export function Products() {
         )}
       </div>
 
-      {!isAdmin && (
+      {!canManage && (
         <div className="mb-4 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
           Estás viendo el catálogo en modo lectura. Solo un administrador puede modificar precios, costos o existencia.
         </div>
@@ -270,7 +271,7 @@ export function Products() {
                 <th className="px-4 py-2">Present.</th>
                 <th className="px-4 py-2 text-right">Precio ($)</th>
                 <th className="px-4 py-2 text-right">Existencia</th>
-                {isAdmin && <th className="px-4 py-2"></th>}
+                {canManage && <th className="px-4 py-2"></th>}
               </tr>
             </thead>
             <tbody>
@@ -287,7 +288,7 @@ export function Products() {
                   >
                     {p.stock}
                   </td>
-                  {isAdmin && (
+                  {canManage && (
                     <td className="px-4 py-2 text-right space-x-2">
                       <button onClick={() => openEdit(p)} className="text-brand-700 hover:underline">
                         Editar

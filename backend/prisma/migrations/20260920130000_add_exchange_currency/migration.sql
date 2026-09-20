@@ -1,0 +1,2 @@
+ALTER TABLE `sales`
+    ADD COLUMN `exchangeCurrency` ENUM('DOLAR', 'EURO') NOT NULL DEFAULT 'DOLAR';

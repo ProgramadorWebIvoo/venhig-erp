@@ -13,6 +13,7 @@ multiusuario, con control de roles y envío de facturas digitales por correo.
   - `VENDEDOR`: puede vender y gestionar clientes, pero **no puede** crear/editar/eliminar productos
     (precio, costo, inventario quedan bloqueados a nivel de backend, no solo ocultos en pantalla).
 - **Bimoneda (USD/Bs)**: cada venta usa la tasa BCV vigente, fijada por un admin.
+- **Reportes**: el panel administrativo resume ventas, cuentas por cobrar, ventas por día y productos más vendidos desde la base de datos real.
 
 ## Stack
 
@@ -98,24 +99,25 @@ npm run seed   # vuelve a correr el seed: hace upsert, no duplica lo ya existent
 
 ## Reglas de negocio importantes que ya están implementadas
 
-- **Bloqueo real de rol**: las rutas `POST/PATCH/DELETE /api/products` exigen `role=ADMIN` en el
   middleware del backend (`requireRole`). Un vendedor que intente forzar la petición vía API directa
   también recibe `403`, no solo un botón oculto en la UI.
-- **Inventario atómico**: al crear una venta, el descuento de stock y la asignación del número de
   factura ocurren dentro de una única transacción de base de datos con bloqueo de fila — dos ventas
   simultáneas nunca pisan el mismo número de factura ni sobre-venden un producto.
-- **Precio congelado**: el precio unitario se copia a la venta en el momento de facturar, así que
   cambiar el precio de un producto después no altera facturas ya emitidas.
-- **Fallo de correo no revierte la venta**: si el envío SMTP falla, la venta queda registrada igual
   y puedes reenviar la factura después desde el historial de ventas.
 
 ## Próximos pasos sugeridos (no incluidos en esta primera versión)
-
 - Módulo de compras y proveedores (el schema de referencia ya existía en tu Excel: `COMPRAS`,
-  `PROVEEDORES`, `MAESTRO COMPRAS` — se puede añadir siguiendo el mismo patrón que `Sale`/`SaleItem`).
-- Reportes/dashboard (ventas por período, productos más vendidos, cuentas por cobrar).
-- Notas de entrega separadas de la factura fiscal (tu Excel las maneja como documentos distintos).
 - Multi-lista de precios activa por cliente (tu `BASE DATOS` ya trae `N° LISTA`, el modelo lo soporta
+## Módulos integrados del preview
+
+- Compras y proveedores con actualización transaccional de inventario.
+- Notas de entrega, conversión a factura y aprobaciones auditables de precios especiales.
+- Reportes/dashboard desde ventas reales, cuentas por cobrar y productos más vendidos.
+- Reempaque padre → hijo con ejecución atómica y movimientos de inventario.
+- Configuración fiscal y catálogo de almacenes.
+
+La migración `20260920120000_integrate_preview_modules` crea las tablas necesarias. En despliegues existentes ejecuta `npm run prisma:migrate` dentro de `backend` antes de usar estos módulos.
   pero falta la UI para elegir lista al vender).
 
 ## Estructura del proyecto

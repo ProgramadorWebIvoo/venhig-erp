@@ -1,0 +1,15 @@
+Options -MultiViews
+RewriteEngine On
+
+# Proxy API requests to the Node/Express backend.
+# Apache must have mod_proxy, mod_proxy_http and mod_rewrite enabled.
+RewriteRule ^api/(.*)$ http://127.0.0.1:4000/api/$1 [P,L,NE]
+
+# Keep static files and assets served normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# React Router fallback for /ventas, /productos, /clientes, etc.
+RewriteRule ^ index.html [L]
+

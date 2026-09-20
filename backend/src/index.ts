@@ -33,6 +33,12 @@ app.use("/api/reports", reportsRouter);
 app.use("/api/procurement", procurementRouter);
 app.use("/api/settings", settingsRouter);
 
+// 3. Opcional: Si tu backend también sirve un frontend de una sola página (SPA)
+// esto redirige cualquier otra ruta desconocida al index.html dentro de public
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Debe registrarse DESPUÉS de todas las rutas: es el único lugar que traduce
 // errores lanzados en cualquier controlador a una respuesta HTTP consistente.
 app.use(errorHandler);

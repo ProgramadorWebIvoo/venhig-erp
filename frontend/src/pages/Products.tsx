@@ -36,14 +36,30 @@ function mapHeaders(row: any) {
   return mapped;
 }
 
+function parseNum(val?: string | number | null): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  const clean = String(val).replace(",", ".").trim();
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+}
+
+function calculatePrice(costInput?: string | number | null, marginInput?: string | number | null): string {
+  const cost = parseNum(costInput);
+  const margin = parseNum(marginInput);
+  if (cost <= 0) return "0.00";
+  const finalPrice = cost * (1 + margin / 100);
+  return finalPrice.toFixed(2);
+}
+
 const emptyForm = {
   code: "",
   description: "",
   presentation: "UN",
   itemType: "PFinal" as ItemType,
-  cost: "0",
-  profitMargin: "0",
-  price: "0",
+  cost: "",
+  profitMargin: "30",
+  price: "",
   priceListNumber: "1",
   stock: "0",
   reorderPoint: "0",
@@ -90,35 +106,85 @@ export function Products() {
 
   function openEdit(p: Product) {
     setEditing(p);
+    const costNum = parseNum(p.cost);
+    const priceNum = parseNum(p.price);
+    const rawMargin = Number(p.profitMargin) || 0;
+
+    let displayMargin = "";
+    if (costNum > 0 && priceNum >= costNum) {
+      displayMargin = (((priceNum - costNum) / costNum) * 100).toFixed(1).replace(/\.0$/, "");
+    } else if (rawMargin > 0 && rawMargin <= 10) {
+      displayMargin = (rawMargin * 100).toFixed(1).replace(/\.0$/, "");
+    } else {
+      displayMargin = String(rawMargin);
+    }
+
     setForm({
       code: p.code,
       description: p.description,
       presentation: p.presentation,
       itemType: p.itemType,
-      cost: p.cost ?? "0",
-      profitMargin: p.profitMargin ?? "0",
-      price: p.price,
-      priceListNumber: String(p.priceListNumber),
-      stock: p.stock,
-      reorderPoint: p.reorderPoint,
+      cost: p.cost !== null && p.cost !== undefined ? String(p.cost) : "",
+      profitMargin: displayMargin,
+      price: p.price !== null && p.price !== undefined ? String(p.price) : "",
+      priceListNumber: String(p.priceListNumber || 1),
+      stock: String(p.stock ?? 0),
+      reorderPoint: String(p.reorderPoint ?? 0),
     });
     setShowForm(true);
+  }
+
+  function handleCostChange(newCostStr: string) {
+    const cost = parseNum(newCostStr);
+    const calcPrice = cost > 0 ? calculatePrice(newCostStr, form.profitMargin) : form.price;
+    setForm((prev) => ({
+      ...prev,
+      cost: newCostStr,
+      price: cost > 0 ? calcPrice : prev.price,
+    }));
+  }
+
+  function handleMarginChange(newMarginStr: string) {
+    const cost = parseNum(form.cost);
+    const calcPrice = cost > 0 ? calculatePrice(cost, newMarginStr) : form.price;
+    setForm((prev) => ({
+      ...prev,
+      profitMargin: newMarginStr,
+      price: cost > 0 ? calcPrice : prev.price,
+    }));
+  }
+
+  function handlePriceChange(newPriceStr: string) {
+    const price = parseNum(newPriceStr);
+    const cost = parseNum(form.cost);
+    let calcMargin = form.profitMargin;
+    if (cost > 0) {
+      calcMargin = (((price - cost) / cost) * 100).toFixed(1).replace(/\.0$/, "");
+    }
+    setForm((prev) => ({
+      ...prev,
+      price: newPriceStr,
+      profitMargin: cost > 0 ? calcMargin : prev.profitMargin,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const marginPct = parseNum(form.profitMargin);
+    const normalizedMargin = Number((marginPct / 100).toFixed(4));
+
     const payload = {
       code: form.code,
       description: form.description,
       presentation: form.presentation,
       itemType: form.itemType,
-      cost: Number(form.cost),
-      profitMargin: Number(form.profitMargin),
-      price: Number(form.price),
-      priceListNumber: Number(form.priceListNumber),
-      stock: Number(form.stock),
-      reorderPoint: Number(form.reorderPoint),
+      cost: parseNum(form.cost),
+      profitMargin: normalizedMargin,
+      price: parseNum(form.price),
+      priceListNumber: Number(form.priceListNumber) || 1,
+      stock: parseNum(form.stock),
+      reorderPoint: parseNum(form.reorderPoint),
     };
     try {
       if (editing) {
@@ -358,35 +424,67 @@ export function Products() {
                   <option value="PFinal">Producto final</option>
                 </select>
               </div>
-              <div>
-                <label className="text-sm text-gray-600">Costo ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.cost}
-                  onChange={(e) => setForm({ ...form, cost: e.target.value })}
-                  className="w-full border rounded-md px-2 py-1.5"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Margen (0-1)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.profitMargin}
-                  onChange={(e) => setForm({ ...form, profitMargin: e.target.value })}
-                  className="w-full border rounded-md px-2 py-1.5"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Precio venta ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.price}
-                  onChange={(e) => setForm({ ...form, price: e.target.value })}
-                  className="w-full border rounded-md px-2 py-1.5"
-                />
+              <div className="col-span-2 bg-emerald-50/70 border border-emerald-200 rounded-lg p-3 my-1">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    📈 Margen Comercial y Precio Final
+                  </span>
+                  {parseNum(form.cost) > 0 && parseNum(form.price) >= parseNum(form.cost) && (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                      Ganancia: +${(parseNum(form.price) - parseNum(form.cost)).toFixed(2)} USD
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-700 block mb-1">Costo ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.cost}
+                      placeholder="0.00"
+                      onChange={(e) => handleCostChange(e.target.value)}
+                      className="w-full border rounded-md px-2 py-1.5 font-mono text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-emerald-900 block mb-1">Margen Ganancia (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={form.profitMargin}
+                      placeholder="30"
+                      onChange={(e) => handleMarginChange(e.target.value)}
+                      className="w-full border-2 border-emerald-400 rounded-md px-2 py-1.5 font-mono text-sm font-semibold text-emerald-800 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-900 block mb-1">
+                      Precio Final ($) <span className="text-[10px] text-emerald-600 font-bold ml-1">⚡ Auto</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={form.price}
+                      placeholder="0.00"
+                      onChange={(e) => handlePriceChange(e.target.value)}
+                      className="w-full border-2 border-emerald-500 rounded-md px-2 py-1.5 font-mono text-sm font-bold text-gray-900 bg-white shadow-xs"
+                    />
+                  </div>
+                </div>
+                {parseNum(form.cost) > 0 ? (
+                  <p className="text-[11px] text-emerald-700 mt-2 font-mono">
+                    ✓ Cálculo automático: ${parseNum(form.cost).toFixed(2)} + {form.profitMargin || 0}% = ${parseNum(form.price).toFixed(2)} USD
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-gray-500 mt-2 italic">
+                    💡 Ingresa el Costo ($) y al modificar el Margen (%) el Precio Final se actualizará automáticamente.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-sm text-gray-600">N° Lista</label>
